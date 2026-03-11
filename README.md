@@ -146,40 +146,101 @@ Produces analytics-ready datasets for reporting and analysis.
 
 Current model:
 
-fct_member_claim_coverage_summary
+- fct_claim_coverage_validation
+- fct_member_claim_coverage_summary
 
 ⸻
+#### Model: fct_claim_coverage_validation
 
-#### Model: fct_member_claim_coverage_summary
+**Grain**
 
-Grain
+1 row per claim
+
+**Purpose**
+
+Validates whether each claim matches zero, one, or multiple eligibility segments based on member coverage periods.
+
+This model is used to classify claims as:
+
+- `COVERED`
+- `UNCOVERED`
+- `AMBIGUOUS`
+
+It also derives a risk classification to highlight potentially problematic paid claims.
+
+**Key fields**
+
+- claim_id
+- member_id
+- service_date
+- paid_amount
+- status
+- match_count
+- coverage_status
+- claim_risk_level
+
+**Business logic**
+
+A claim is matched to eligibility using a temporal join:
+
+`service_date BETWEEN eligibility.effective_date AND eligibility.end_date`
+
+Coverage classification rules:
+
+- `match_count = 0` → `UNCOVERED`
+- `match_count = 1` → `COVERED`
+- `match_count > 1` → `AMBIGUOUS`
+
+Risk classification rules:
+
+- paid claims with `UNCOVERED` or `AMBIGUOUS` coverage status are classified as `HIGH_RISK`
+- all other claims are classified as `LOW_RISK`
+
+
+##### Model: fct_member_claim_coverage_summary
+
+**Grain**
 
 1 row per member
 
-Purpose
+**Purpose**
 
-Summarizes claim activity for each member and identifies financial exposure from claims that occurred outside valid eligibility coverage.
+Summarizes claim activity and financial exposure at the member level using the claim-level validation model as the source.
 
-Claims are considered covered when:
+This model aggregates validated claim records to produce member-level metrics such as:
 
-service_date BETWEEN eligibility.effective_date AND eligibility.end_date
+- total_claim_count
+- uncovered_claim_count
+- total_paid_amount
+- uncovered_paid_amount
 
-Metrics produced
-	•	total_claim_count
-	•	uncovered_claim_count
-	•	total_paid_amount
-	•	uncovered_paid_amount
-
-These metrics allow analysts to identify members with uncovered claims and quantify the financial exposure associated with those claims.
+This model is built from `fct_claim_coverage_validation` so that each claim contributes only once, even when eligibility overlaps create ambiguous claim attribution.
 
 ⸻
 
-Example Business Questions
+## Example Business Questions
 
 This project enables analysis such as:
 	•	Which members had claims submitted outside eligibility coverage?
 	•	What is the financial exposure from uncovered claims?
 	•	Which members have the highest uncovered claim risk?
+
+⸻
+
+## Validation Tests
+
+The project includes SQL-based validation tests to verify both claim-level and member-level models.
+
+### Claim-level tests
+- `claim_id` is unique
+- `match_count` maps correctly to `coverage_status`
+- uncovered paid claims are classified as `HIGH_RISK`
+- ambiguous paid claims are classified as `HIGH_RISK`
+
+### Member-level tests
+- `member_id` is unique
+- `uncovered_paid_amount` never exceeds `total_paid_amount`
+- members with zero claims have zero-valued metrics
 
 ⸻
 
@@ -197,12 +258,13 @@ The project currently uses:
 ## Future Enhancements
 
 Planned improvements include:
-	•	Claim-level coverage validation model
-	•	Provider-level claim exposure analysis
-	•	Member-month modeling for PMPM analysis
 	•	dbt transformation framework
 	•	Dockerized development environment
 	•	Airflow orchestration pipeline
+	•	provider-level claim exposure analysis
+	•	member-month modeling for PMPM analysis
+	
+
 
 ⸻
 
@@ -215,9 +277,15 @@ healthcare-data-engineering-project
 │       ├── staging
 │       ├── intermediate
 │       └── marts
+│           ├── fct_claim_coverage_validation.sql
 │           └── fct_member_claim_coverage_summary.sql
 │
 ├── tests
+│   └── healthcare
+│       └── marts
+│           ├── test_fct_claim_coverage_validation.sql
+│           └── test_fct_member_claim_coverage_summary.sql
+│
 ├── docs
 └── data
 
