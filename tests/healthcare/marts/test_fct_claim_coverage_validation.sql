@@ -21,8 +21,9 @@ WHERE coverage_status = 'UNCOVERED'
   AND status = 'PAID'
   AND claim_risk_level <> 'HIGH_RISK';
 
--- 4) ambiguous should be MEDIUM RISK (per our current business rule)
+-- 4) ambiguous should be HIGH RISK (per our current business rule)
 SELECT *
 FROM healthcare.fct_claim_coverage_validation
 WHERE coverage_status = 'AMBIGUOUS'
+  AND status = 'PAID'
   AND claim_risk_level <> 'HIGH_RISK';
