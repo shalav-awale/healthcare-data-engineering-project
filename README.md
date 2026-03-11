@@ -77,6 +77,36 @@ Example fields
 
 ⸻
 
+## Architecture Overview
+
+The pipeline validates claim coverage by comparing claim service dates against member eligibility periods.
+
+Data flows through a layered transformation architecture.
+
+Raw Tables
+↓
+Eligibility + Claims Temporal Join
+↓
+Coverage Validation Logic
+↓
+Member-Level Aggregation
+
+Data Flow
+
+members
+    ↓
+eligibility
+    ↓
+claims
+    ↓
+coverage validation logic
+    ↓
+fct_member_claim_coverage_summary
+
+This architecture allows claim-level validation logic to feed aggregated analytics models used for reporting and monitoring financial exposure.
+
+⸻
+
 ## Transformation Architecture
 
 The project follows a layered transformation pattern inspired by modern analytics engineering practices.
@@ -200,3 +230,37 @@ The goal of this project is to demonstrate practical data engineering skills app
 	•	Implementing temporal joins
 	•	Building layered transformation pipelines
 	•	Producing business-ready analytics models
+
+⸻
+
+## How to Run This Project
+
+1. Clone the repository
+
+    git clone git@github.com:yourusername/healthcare-data-engineering-project.git
+    cd healthcare-data-engineering-project
+
+2. Set up PostgreSQL
+
+    Install PostgreSQL locally and create a database.
+
+    Example:
+    CREATE DATABASE practice_healthcare;
+
+3. Create tables
+
+    Run the SQL scripts in the project to create the following tables:
+        •	members
+        •	eligibility
+        •	claims
+
+4. Insert seed data
+
+    Load sample records into the tables.
+
+5. Run transformation models
+
+    Execute the SQL model:
+    models/healthcare/marts/fct_member_claim_coverage_summary.sql
+
+    This will produce the member-level claims coverage summary.

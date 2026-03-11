@@ -19,23 +19,6 @@ Metrics:
 
 
 
-WITH claims_coverage_check AS (
-    SELECT 
-        c.claim_id,
-        c.member_id,
-        c.service_date,
-        c.paid_amount,
-        c.status,
-        e.plan_id,
-        CASE
-            WHEN e.plan_id IS NULL THEN 'UNCOVERED'
-            ELSE 'COVERED'
-        END AS coverage_status
-    FROM healthcare.claims c 
-    LEFT JOIN healthcare.eligibility e 
-      ON e.member_id = c.member_id 
-     AND c.service_date BETWEEN e.effective_date AND e.end_date 
-)
 SELECT 
     m.member_id,
     m.first_name,
@@ -62,7 +45,7 @@ SELECT
         END
     ) AS uncovered_paid_amount
 FROM healthcare.members m 
-LEFT JOIN claims_coverage_check cl
+LEFT JOIN healthcare.fct_claim_coverage_validation cl
   ON cl.member_id = m.member_id 
 GROUP BY
     m.member_id,
