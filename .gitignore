@@ -1,0 +1,14 @@
+# dbt
+target/
+dbt_packages/
+logs/
+
+# Python (just in case later)
+__pycache__/
+*.pyc
+
+# Mac
+.DS_Store
+
+# Environment files
+.env

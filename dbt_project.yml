@@ -1,0 +1,25 @@
+name: 'healthcare_data_engineering_project'       # The name of the dbt project. This is used in various places, such as the default schema name for models.
+version: '1.0.0'                                  # The version of the dbt project. This is used for versioning and can be helpful for tracking changes over time.
+config-version: 2                                 # The version of the dbt configuration. This should be set to 2 for all new projects, as it enables the latest features and best practices.
+
+profile: 'healthcare_data_engineering_project'    # The name of the dbt profile to use for this project. This should match a profile defined in your profiles.yml file, which contains the connection details for your data warehouse.
+
+model-paths: ["models"]                           # The paths where dbt will look for model files. In this case, it will look in the "models" directory. You can specify multiple paths if needed.
+test-paths: ["tests"]                             # The paths where dbt will look for test files. In this case, it will look in the "tests" directory. You can specify multiple paths if needed.
+seed-paths: ["data"]                              # The paths where dbt will look for seed files. In this case, it will look in the "data" directory. You can specify multiple paths if needed.
+macro-paths: ["macros"]                           # The paths where dbt will look for macro files. In this case, it will look in the "macros" directory. You can specify multiple paths if needed.
+snapshot-paths: ["snapshots"]                     # The paths where dbt will look for snapshot files. In this case, it will look in the "snapshots" directory. You can specify multiple paths if needed.
+
+clean-targets:                                    # The directories that dbt will clean when you run `dbt clean`. This is useful for removing compiled artifacts and other generated files. In this case, it will clean the "target" and "dbt_packages" directories.
+  - "target"                                      # The "target" directory is where dbt compiles models and stores generated files. Cleaning this directory can help resolve issues with stale artifacts.
+  - "dbt_packages"                                # The "dbt_packages" directory is where dbt installs packages defined in the packages.yml file. Cleaning this directory can help resolve issues with package installations.
+
+models:                                           # The configuration for models in the dbt project. This section allows you to specify how models should be materialized (e.g., as views, tables, etc.) and other model-specific settings. In this case, all models under the "healthcare" namespace will be materialized as views.
+  healthcare_data_engineering_project:            # The namespace for the models in this project. This should match the name of the project or a specific subdirectory under the "models" directory.
+    healthcare:                                   # The sub-namespace for the healthcare models. This allows you to organize your models into different categories or layers, such as staging, intermediate, and marts.
+      staging:                                    # The sub-namespace for staging models. Staging models are typically used to clean and prepare raw data before it is transformed into more complex models. In this case, all staging models will be materialized as views.
+        +materialized: view                       # This configuration tells dbt to materialize all models under the "staging" namespace as views. Materializing as views means that the models will be created as database views, which can be useful for performance and maintainability, especially when working with large datasets or complex transformations.
+      intermediate:                               # The sub-namespace for intermediate models. Intermediate models are typically used to perform transformations on the staged data before it is loaded into the final marts. In this case, all intermediate models will be materialized as views.
+        +materialized: view                       # This configuration tells dbt to materialize all models under the "intermediate" namespace as views. Materializing as views means that the models will be created as database views, which can be useful for performance and maintainability, especially when working with large datasets or complex transformations.
+      marts:                                      # The sub-namespace for mart models. Mart models are typically used to create the final tables or views that will be consumed by end-users or downstream applications. In this case, all mart models will be materialized as views.
+        +materialized: view                       # This configuration tells dbt to materialize all models under the "marts" namespace as views. Materializing as views means that the models will be created as database views, which can be useful for performance and maintainability, especially when working with large datasets or complex transformations.

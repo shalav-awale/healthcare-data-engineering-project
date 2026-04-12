@@ -45,13 +45,13 @@ SELECT
         END
     ) AS uncovered_paid_amount
 FROM healthcare.members m 
-LEFT JOIN healthcare.fct_claim_coverage_validation cl
+LEFT JOIN {{ ref('fct_claim_coverage_validation') }} cl
   ON cl.member_id = m.member_id 
 GROUP BY
     m.member_id,
     m.first_name,
     m.last_name
-ORDER BY m.member_id;
+ORDER BY m.member_id
 
 
 
