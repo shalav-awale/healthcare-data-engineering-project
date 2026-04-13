@@ -6,7 +6,7 @@ select
 	e.effective_date,
 	e.end_date,
 	gs.coverage_month::date as coverage_month
-from healthcare.eligibility e
+from {{ ref('stg_eligibility') }} e
 cross join lateral generate_series(
 	date_trunc('month', e.effective_date), 
 	date_trunc('month', LEAST(e.end_date, date '2026-12-31')),

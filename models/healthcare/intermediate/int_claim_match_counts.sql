@@ -8,8 +8,8 @@ claim_eligibility_matches as
         c.paid_amount ,
         c.status ,
         e.plan_id 
-        from healthcare.claims c 
-        left join healthcare.eligibility e
+        from {{ ref('stg_claims') }} c 
+        left join {{ ref('stg_eligibility') }} e
         on e.member_id = c.member_id
         and c.service_date  between e.effective_date and e.end_date 
     )
