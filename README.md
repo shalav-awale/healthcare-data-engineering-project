@@ -90,8 +90,9 @@ member_month_weight = covered_days_in_month / days_in_month
 ## What This Project Demonstrates
 -	Temporal joins and overlap handling
 -	Grain correction after join expansion
--	Non-additive denominator modeling
--	dbt model layering with ref() dependencies
+-	dbt layering with ref() dependencies
+-	Member-month denominator modeling
+-	PMPM-style cost normalization
 -	Custom SQL data tests for structural and business-rule validation
 
 ----
@@ -130,7 +131,6 @@ This project enables analysis such as:
 - 	What is monthly paid cost normalized by member-month weight?
 - 	What is the financial exposure from uncovered claims?
 - 	How do partial-month eligibility periods affect PMPM?
-- 	Which members have the highest risk exposure?
 
 ----
 
@@ -145,6 +145,14 @@ The project includes dbt singular tests for:
 -	denominator rules such as 0 <= member_month_weight <= 1
 -	PMPM formula correctness with tolerance-based validation
 
+----
+
+## Design Decisions
+
+The monthly cost mart was intentionally built at member-month grain, not member-month-plan grain, because claim-to-plan attribution was not reliably resolved in the current model. This avoids duplicating or misattributing cost across plans while still supporting valid PMPM-style analysis.
+
+----
+
 ## Technology Stack
 
 The project currently uses:
@@ -158,45 +166,10 @@ The project currently uses:
 
 ## Future Enhancements
 
-- 	staging models to complete the dbt layering
+- 	orchestrate dbt runs on a schedule with Airflow or Dagster
 - 	scheduled orchestration with Airflow or Dagster
-- 	cloud warehouse deployment
 - 	containerized setup (Docker)
-- 	provider-attributed or plan-attributed cost modeling once attribution logic is available
+- 	add provider or plan-attributed cost modeling once attribution logic is available
+-	deploy the pipeline on a cloud warehouse
 
 ----
-
-
-
-
-
-
-
-
-
-
-# Healthcare Claims Coverage Validation Pipeline
-
-## Overview
-
-This project is a dbt-based healthcare data pipeline built on PostgreSQL. It validates medical claims against member eligibility periods, identifies uncovered and ambiguous claims, and produces member-level and member-month outputs for exposure and PMPM-style analysis.
-
-## Problem
-
-Claims that fall outside valid eligibility periods can create payment integrity risk, billing issues, and misleading downstream analytics. Overlapping eligibility can also make claim attribution ambiguous.
-
-## Approach
-
-The pipeline does four things:
-
-1. Stages core source data for claims and eligibility  
-2. Matches claims to eligibility using temporal logic  
-3. Builds intermediate models for claim match counts and member-month eligibility  
-4. Produces fact models for claim validation, member exposure, and member-month cost analysis  
-
-## Key Logic
-
-Claims are matched to eligibility with:
-
-```sql
-service_date BETWEEN effective_date AND end_date
