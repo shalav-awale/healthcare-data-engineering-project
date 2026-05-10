@@ -1,175 +1,273 @@
 # Healthcare Claims Coverage Validation Pipeline
 
-## Overview
+![dbt](https://img.shields.io/badge/dbt-Core-orange?logo=dbt)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-blue?logo=postgresql)
+![Python](https://img.shields.io/badge/Python-3.13-blue?logo=python)
+![GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-black?logo=githubactions)
 
-This project is a dbt-based healthcare data pipeline built on PostgreSQL. It validates medical claims against member eligibility periods, identifies uncovered and ambiguous claims, and produces member-level and member-month outputs for exposure and PMPM-style analysis.
+A production-pattern dbt pipeline that validates healthcare claims against member eligibility periods, classifies coverage risk, and produces member-month PMPM analytics. Built to demonstrate data engineering depth in healthcare data quality, temporal join logic, grain management, and automated test validation.
 
-----
+---
 
-## Problem
+## The Problem
 
-Claims that fall outside valid eligibility periods can create billing issues, payment integrity risk, and misleading downstream analytics. Overlapping eligibility can also make claim attribution ambiguous.
+In healthcare insurance, claims that fall outside a member's eligibility window create billing errors, payment integrity risk, and misleading downstream analytics. Overlapping eligibility segments make claim attribution ambiguous — a single claim may match multiple eligibility rows, inflating counts and costs if not handled correctly.
 
-----
+This pipeline solves both problems systematically.
 
-## Approach
+---
 
-The pipeline does four things:
+## Pipeline Architecture
 
-1. Stages core source data for claims and eligibility  
-2. Matches claims to eligibility using temporal logic  
-3. Builds intermediate models for claim match counts and member-month eligibility  
-4. Produces fact models for claim validation, member exposure, and member-month cost analysis 
+```
+Source Data (claims · eligibility · members)
+                    │
+                    ▼
+        ┌─────────────────────┐
+        │    STAGING LAYER    │
+        │  stg_claims         │  ← clean, type, rename
+        │  stg_eligibility    │  ← standardize fields
+        └─────────┬───────────┘
+                  │
+                  ▼
+        ┌─────────────────────────────────┐
+        │      INTERMEDIATE LAYER         │
+        │  int_claim_match_counts         │  ← temporal join, count matches
+        │  int_member_month_eligibility   │  ← expand eligibility to months
+        └─────────┬───────────────────────┘
+                  │
+                  ▼
+        ┌─────────────────────────────────────────┐
+        │              MART LAYER                 │
+        │  fct_claim_coverage_validation          │  ← coverage + risk classification
+        │  fct_member_claim_coverage_summary      │  ← member-level exposure
+        │  fct_member_month_cost                  │  ← PMPM-style cost analytics
+        └─────────────────────────────────────────┘
+                  │
+                  ▼
+        ┌─────────────────────┐
+        │   DATA QUALITY      │
+        │   12 dbt tests      │  ← grain · business rules · formula checks
+        └─────────────────────┘
+```
 
-----
+### dbt Lineage Graph
 
-## Key Logic
+![dbt Lineage Graph](docs/dbt-dag.png)
 
-Claims are matched to eligibility using:
+---
+
+## Key Engineering Logic
+
+### 1. Temporal Join — Claims to Eligibility
+
+Claims are matched to eligibility using date range logic:
 
 ```sql
 service_date BETWEEN eligibility.effective_date AND eligibility.end_date
 ```
-----
 
-### Coverage Classification
+This join intentionally produces multiple rows per claim when eligibility segments overlap. The intermediate layer resolves this by counting matches and correcting grain before it reaches the mart.
 
-- 	match_count = 0 matches -> UNCOVERED  
-- 	match_count = 1 match 	-> COVERED  
-- 	match_count > 1 matches -> AMBIGUOUS  
+### 2. Coverage Classification
 
-----
-
-## Risk Classification
+Rather than arbitrarily assigning a claim to one eligibility segment, the pipeline explicitly classifies coverage status based on match count:
 
 ```sql
 CASE
-  WHEN coverage_status IN ('UNCOVERED', 'AMBIGUOUS') AND status = 'PAID'
-  THEN 'HIGH_RISK'
-  ELSE 'LOW_RISK'
-END
+    WHEN match_count = 0 THEN 'UNCOVERED'
+    WHEN match_count = 1 THEN 'COVERED'
+    WHEN match_count > 1 THEN 'AMBIGUOUS'
+END AS coverage_status
 ```
-----
-## Member-month weighting
 
+Ambiguous claims are surfaced as a first-class category — not hidden or arbitrarily resolved — which is the correct approach for payment integrity work.
+
+### 3. Risk Classification
+
+```sql
+CASE
+    WHEN coverage_status IN ('UNCOVERED', 'AMBIGUOUS')
+     AND claim_status = 'PAID'
+    THEN 'HIGH_RISK'
+    ELSE 'LOW_RISK'
+END AS claim_risk_level
+```
+
+Paid claims with no valid or ambiguous coverage are the highest business risk — they represent money paid out that may not be recoverable.
+
+### 4. Member-Month Weighting
+
+Eligibility periods are expanded into monthly rows using `generate_series()`. Partial months are prorated using:
+
+```sql
 member_month_weight = covered_days_in_month / days_in_month
+```
 
-----
+This supports accurate PMPM (Per Member Per Month) denominators even when members enroll or disenroll mid-month — a common challenge in healthcare analytics.
 
-## Project Structure
+---
 
-### Staging
-	*	stg_claims
-	*	stg_eligibility
+## Data Model
 
-### Intermediate
-	*	int_claim_match_counts
-	*	int_member_month_eligibility
+| Model | Grain | Purpose |
+|---|---|---|
+| `stg_claims` | 1 row per claim | Staged source claims |
+| `stg_eligibility` | 1 row per eligibility segment | Staged source eligibility |
+| `int_claim_match_counts` | 1 row per claim | Counts eligibility matches, corrects grain |
+| `int_member_month_eligibility` | 1 row per member per month per plan | Monthly eligibility denominator |
+| `fct_claim_coverage_validation` | 1 row per claim | Coverage status + risk classification |
+| `fct_member_claim_coverage_summary` | 1 row per member | Member-level exposure summary |
+| `fct_member_month_cost` | 1 row per member per month | Monthly cost and PMPM metrics |
 
-### Marts
-	*	fct_claim_coverage_validation
-	*	fct_member_claim_coverage_summary
-	*	fct_member_month_cost
+---
 
-----
+## Business Questions This Pipeline Answers
 
-## Data Model 
+- Which claims were paid outside a valid eligibility window?
+- Which claims are ambiguous due to overlapping eligibility segments?
+- Which members have the highest uncovered paid exposure?
+- What is the financial risk from HIGH_RISK paid claims?
+- What is monthly paid cost normalized by member-month weight (PMPM)?
+- How do partial-month eligibility periods affect cost denominators?
 
-		Table									Grain											Purpose
+---
 
-- 	stg_claims			 				-> raw claim grain							-> staged source claims
-- 	stg_eligibility						-> raw eligiblity grain						-> staged source eligibility
-- 	int_claim_match_counts 				-> 1 row per claim 							-> Counts eligibility matches per claim
-- 	int_member_month_eligibility 		-> 1 row per member per month per plan 		-> Expands eligibility into monthly denominator rows
-- 	fct_claim_coverage_validation 		-> 1 row per claim 							-> Coverage + risk classification
-- 	fct_member_claim_coverage_summary	-> 1 row per member 						-> Member-level exposure summary
-- 	fct_member_month_cost 				-> 1 row per member per month 				-> Monthly cost and PMPM-style metrics 
+## Data Quality Test Suite
 
-----
+The pipeline includes 12 dbt singular tests covering structural integrity, business rules, and formula correctness:
 
-## What This Project Demonstrates
--	Temporal joins and overlap handling
--	Grain correction after join expansion
--	dbt layering with ref() dependencies
--	Member-month denominator modeling
--	PMPM-style cost normalization
--	Custom SQL data tests for structural and business-rule validation
+| Test | What It Validates |
+|---|---|
+| `test_claim_validation_unique_claim_id` | No duplicate claims in the mart |
+| `test_member_claim_summary_unique_member_id` | No duplicate members in summary |
+| `test_member_month_cost_unique_grain` | Unique member + month combination |
+| `test_claim_validation_match_count_mapping` | match_count maps correctly to coverage_status |
+| `test_claim_validation_uncovered_paid_high_risk` | UNCOVERED + PAID = HIGH_RISK always |
+| `test_claim_validation_ambiguous_paid_high_risk` | AMBIGUOUS + PAID = HIGH_RISK always |
+| `test_member_claim_summary_uncovered_paid_less_total_paid` | Uncovered amount never exceeds total paid |
+| `test_member_claim_summary_zero_claim_members_have_zero_metrics` | Members with no claims show zero metrics |
+| `test_member_month_cost_weight_between_0_and_1` | Weight always between 0 and 1 |
+| `test_member_month_cost_pmpm_correct` | PMPM formula verified with tolerance |
+| `test_member_month_cost_uncovered_pmpm_correct` | Uncovered PMPM formula verified |
+| `test_member_month_cost_uncovered_le_total` | Uncovered cost never exceeds total cost |
 
-----
+All 12 tests pass on every run.
 
-## Architecture (High-Level)
+---
 
-This project follows a layered transformation approach:
-- 	Staging → cleans and standardizes raw data
-- 	Intermediate → applies business logic
-- 	Mart → produces analytics-ready datasets
+## Key Design Decisions
 
-## Raw tables (claims, eligibility, members)
-- 	intermediate dbt models
-- 	fact marts
-- 	dbt data tests
+**Grain correction before the mart**
+The raw temporal join produces multiple rows per claim when eligibility overlaps. Rather than filtering or arbitrarily deduplicating, the intermediate layer groups back to claim grain by counting matches. This preserves the full picture — covered, uncovered, and ambiguous — without data loss.
 
-## High-level flow:
+**Ambiguous claims are a first-class category**
+Most pipelines silently drop or arbitrarily assign ambiguous claims. This pipeline surfaces them explicitly so analysts and auditors can investigate rather than inherit hidden decisions.
 
-### claims + eligibility
-- 	int_claim_match_counts
-- 	fct_claim_coverage_validation
-- 	fct_member_claim_coverage_summary
+**Member-month mart at member-month grain, not member-month-plan grain**
+When a member has overlapping plan eligibility, summing weights across plans would overstate coverage. The pipeline uses `MAX(member_month_weight)` when collapsing to member-month grain to avoid inflating the denominator.
 
-### eligibility
-- 	int_member_month_eligibility
-- 	fct_member_month_cost
+**Open-ended eligibility dates are capped**
+Eligibility records with far-future end dates (e.g. `9999-12-31`) are capped during month expansion to prevent `generate_series()` from producing thousands of irrelevant rows.
 
-----
+---
 
-## Example Business Questions
+## Running the Pipeline
 
-This project enables analysis such as:
-- 	Which claims were paid outside eligibility coverage?
-- 	Which claims are ambiguous due to overlapping eligibility?
-- 	Which members have the highest uncovered paid exposure?
-- 	What is monthly paid cost normalized by member-month weight?
-- 	What is the financial exposure from uncovered claims?
-- 	How do partial-month eligibility periods affect PMPM?
+### Prerequisites
 
-----
+```bash
+# Python 3.10+
+# PostgreSQL running locally on port 5433
+# dbt-core and dbt-postgres installed
 
-## Validation Approach
+pip install dbt-core dbt-postgres
+```
 
-The project includes dbt singular tests for:
--	claim-grain uniqueness
--	member-grain uniqueness
--	member-month grain uniqueness
--	match_count to coverage_status mapping
--	financial sanity checks such as uncovered_paid_amount <= total_paid_amount
--	denominator rules such as 0 <= member_month_weight <= 1
--	PMPM formula correctness with tolerance-based validation
+### Setup
 
-----
+```bash
+# Clone the repo
+git clone https://github.com/shalav-awale/healthcare-data-engineering-project
+cd healthcare-data-engineering-project
 
-## Design Decisions
+# Verify connection
+dbt debug
 
-The monthly cost mart was intentionally built at member-month grain, not member-month-plan grain, because claim-to-plan attribution was not reliably resolved in the current model. This avoids duplicating or misattributing cost across plans while still supporting valid PMPM-style analysis.
+# Install dbt packages
+dbt deps
+```
 
-----
+### Run
+
+```bash
+# Run all models
+dbt run
+
+# Run all tests
+dbt test
+
+# Run models and tests together
+dbt build
+
+# View documentation
+dbt docs generate
+dbt docs serve
+```
+
+### Expected Output
+
+```
+Done. PASS=7 WARN=0 ERROR=0 SKIP=0 TOTAL=7   ← dbt run
+Done. PASS=12 WARN=0 ERROR=0 SKIP=0 TOTAL=12  ← dbt test
+```
+
+---
 
 ## Technology Stack
 
-The project currently uses:
--	PostgreSQL
--	dbt Core
--	SQL
--	DBeaver
--	Git / GitHub
+| Tool | Purpose |
+|---|---|
+| dbt Core | Transformation layer — models, tests, documentation |
+| PostgreSQL | Local data warehouse |
+| Python | Environment and tooling |
+| Git / GitHub | Version control |
+| GitHub Actions | CI/CD — automated test runs on pull requests |
+| VS Code | Development environment |
 
-----
+---
+
+## CI/CD
+
+A GitHub Actions workflow runs automatically on every pull request targeting `main`:
+
+1. Installs dbt and dependencies
+2. Runs `dbt compile` — validates SQL syntax
+3. Runs `dbt test` — executes all 12 data quality tests
+4. Blocks merge if any test fails
+
+This ensures no broken models or failing data quality checks can reach the main branch.
+
+---
 
 ## Future Enhancements
 
-- 	orchestrate dbt runs on a schedule with Airflow or Dagster
-- 	scheduled orchestration with Airflow or Dagster
-- 	containerized setup (Docker)
-- 	add provider or plan-attributed cost modeling once attribution logic is available
--	deploy the pipeline on a cloud warehouse
+- Connect to cloud warehouse (AWS Redshift or Snowflake)
+- Add Python ingestion layer with S3 as raw data landing zone
+- Orchestrate pipeline runs with Airflow on a daily schedule
+- Add provider and plan-level cost attribution once attribution logic is resolved
+- Containerize with Docker for portable local development
 
-----
+---
+
+## What This Project Demonstrates
+
+This project reflects production-level data engineering practices applied to a real healthcare analytics problem:
+
+- **Temporal join logic** — matching claims to eligibility using date ranges
+- **Grain management** — detecting and correcting join explosion before it reaches the mart
+- **Ambiguity handling** — surfacing ambiguous records rather than silently resolving them
+- **PMPM analytics** — partial-month prorating for accurate cost denominators
+- **dbt layering** — staging → intermediate → mart with explicit `ref()` dependencies
+- **Data quality depth** — 12 custom SQL tests covering uniqueness, business rules, and formula correctness with tolerance
+- **CI/CD integration** — automated test runs on every pull request
