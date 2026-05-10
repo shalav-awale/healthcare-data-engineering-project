@@ -257,6 +257,9 @@ This ensures no broken models or failing data quality checks can reach the main 
 - Orchestrate pipeline runs with Airflow on a daily schedule
 - Add provider and plan-level cost attribution once attribution logic is resolved
 - Containerize with Docker for portable local development
+- Replace manually seeded source tables with Python ingestion 
+  layer pulling from CMS Medicare public datasets into a 
+  PostgreSQL raw schema
 
 ---
 
