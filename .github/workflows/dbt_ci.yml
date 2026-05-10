@@ -1,0 +1,80 @@
+# .github/workflows/dbt_ci.yml
+#
+# This workflow runs automatically on every Pull Request
+# targeting the main branch.
+#
+# What it does:
+# 1. Sets up Python and dbt
+# 2. Validates your dbt project compiles
+# 3. Runs all 12 data quality tests
+# 4. Blocks the PR from merging if any test fails
+#
+# This is the CI/CD pattern used in real DE teams
+# at companies like Palms Insurance
+
+name: dbt CI
+
+# WHEN does this workflow run?
+on:
+  push:
+    branches:
+      - main        # runs when you push directly to main
+  pull_request:
+    branches:
+      - main        # runs on every PR targeting main
+
+jobs:
+  dbt_ci:
+    name: dbt compile and test
+    runs-on: ubuntu-latest   # fresh Linux machine each run
+
+    steps:
+      # Step 1: Download your repo code onto the runner
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Step 2: Install Python 3.11
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      # Step 3: Install dbt with PostgreSQL adapter
+      - name: Install dbt
+        run: |
+          pip install dbt-core dbt-postgres
+
+      # Step 4: Create profiles.yml using GitHub Secrets
+      # Secrets are stored in GitHub Settings → Secrets
+      # Never put passwords directly in this file
+      - name: Create dbt profiles.yml
+        run: |
+          mkdir -p ~/.dbt
+          cat > ~/.dbt/profiles.yml << EOF
+          healthcare_pipeline:
+            target: ci
+            outputs:
+              ci:
+                type: postgres
+                host: ${{ secrets.DB_HOST }}
+                port: 5433
+                user: ${{ secrets.DB_USER }}
+                password: ${{ secrets.DB_PASSWORD }}
+                dbname: practice_healthcare
+                schema: healthcare_ci
+                threads: 1
+          EOF
+
+      # Step 5: Install dbt packages (dbt_utils etc)
+      - name: Install dbt packages
+        run: dbt deps
+
+      # Step 6: Compile — checks SQL syntax without running
+      - name: dbt compile
+        run: dbt compile
+
+      # Step 7: Run all tests
+      # If any of the 12 tests fail, this step fails
+      # and GitHub blocks the PR from merging
+      - name: dbt test
+        run: dbt test
